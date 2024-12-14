@@ -15,7 +15,6 @@
     "ethiopic-calendar": "^2.0.0",
     "vue": "^3.5.13",
     "vuetify": "^3.7.5",
-    "vuetify-ethiopian-calendar": "^1.0.5"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
