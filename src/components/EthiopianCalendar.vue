@@ -1,24 +1,45 @@
 <template>
   <div class="ethiopian-calendar">
     <div class="calendar-header">
-      <button @click="previousMonth">&lt;&lt;</button>
-      <span>{{ currentMonthName }} {{ currentYear }}</span>
-      <button @click="nextMonth">&gt;&gt;</button>
+      <button @click="previousMonth">&lt;</button>
+      <div class="month-year">
+        <div @click="showMonthSelector = !showMonthSelector" class="month-selector">
+          {{ currentMonthName }}
+          <div v-if="showMonthSelector" class="selector-dropdown">
+            <div v-for="(month, index) in monthNames" 
+                 :key="index" 
+                 @click="selectMonth(index + 1)"
+                 :class="{ active: index + 1 === currentMonth }">
+              {{ month }}
+            </div>
+          </div>
+        </div>
+        <div @click="showYearSelector = !showYearSelector" class="year-selector">
+          {{ currentYear }}
+          <div v-if="showYearSelector" class="selector-dropdown">
+            <div v-for="year in yearRange" 
+                 :key="year" 
+                 @click="selectYear(year)"
+                 :class="{ active: year === currentYear }">
+              {{ year }}
+            </div>
+          </div>
+        </div>
+      </div>
+      <button @click="nextMonth">&gt;</button>
     </div>
-    
     <div class="weekdays">
       <div v-for="day in weekDays" :key="day" class="weekday">{{ day }}</div>
     </div>
-    
     <div class="days">
       <div
         v-for="day in days"
-        :key="day.date"
+        :key="day.date ? day.date.year + day.date.month + day.date.day : ''"
         class="day"
         :class="{
           'current': day.isCurrentDay,
           'selected': isSelected(day),
-          'range': isInRange(day),
+          'in-range': isInRange(day),
           'range-start': isRangeStart(day),
           'range-end': isRangeEnd(day),
           'disabled': !day.isCurrentMonth
@@ -32,37 +53,80 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, watch } from 'vue'
-import { EthDateTime } from 'ethiopian-calendar-date-converter'
+import { ref, computed, watch, onMounted } from 'vue'
 
 export default {
   name: 'EthiopianCalendar',
   props: {
     modelValue: {
-      type: [Date, Array],
+      type: Object,
       default: null
     },
-    range: {
+    startDate: {
+      type: Object,
+      default: null
+    },
+    endDate: {
+      type: Object,
+      default: null
+    },
+    isRange: {
       type: Boolean,
       default: false
     }
   },
   emits: ['update:modelValue', 'range-start', 'range-end'],
   setup(props, { emit }) {
-    const currentDate = ref(new Date())
-    const selectedDates = ref([])
+    // Convert today's Gregorian date to Ethiopian date
+    const getEthiopianToday = () => {
+      const today = new Date()
+      const gregYear = today.getFullYear()
+      const gregMonth = today.getMonth() + 1
+      const gregDay = today.getDate()
 
-    // Watch for changes in modelValue prop
-    watch(() => props.modelValue, (newValue) => {
-      if (Array.isArray(newValue)) {
-        selectedDates.value = newValue.filter(date => date !== null).map(date => new Date(date))
-      } else if (newValue) {
-        selectedDates.value = [new Date(newValue)]
+      // Ethiopian calendar is approximately 7-8 years behind Gregorian
+      let ethYear = gregYear - 7
+      let ethMonth
+      let ethDay
+
+      // Ethiopian new year starts on September 11/12
+      if (gregMonth >= 9) {
+        ethMonth = gregMonth - 8
+        if (gregDay >= 11) {
+          ethDay = gregDay - 10
+        } else {
+          ethMonth--
+          ethDay = gregDay + 20
+        }
       } else {
-        selectedDates.value = []
+        ethMonth = gregMonth + 4
+        if (gregDay >= 11) {
+          ethDay = gregDay - 10
+        } else {
+          ethMonth--
+          ethDay = gregDay + 20
+        }
       }
-    }, { immediate: true, deep: true })
-    
+
+      // Adjust for edge cases
+      if (ethMonth <= 0) {
+        ethMonth = 13
+        ethYear--
+      }
+      if (ethMonth > 13) {
+        ethMonth = 1
+        ethYear++
+      }
+
+      return { year: ethYear, month: ethMonth, day: ethDay }
+    }
+
+    const today = getEthiopianToday()
+    const currentDate = ref(today)
+    const selectedDate = ref(props.modelValue || today)
+    const showMonthSelector = ref(false)
+    const showYearSelector = ref(false)
+
     const weekDays = ['እሁድ', 'ሰኞ', 'ማክሰኞ', 'ረቡዕ', 'ሐሙስ', 'አርብ', 'ቅዳሜ']
     const monthNames = [
       'መስከረም', 'ጥቅምት', 'ህዳር', 'ታህሳስ',
@@ -70,32 +134,31 @@ export default {
       'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጷጉሜን'
     ]
 
-    const currentMonthName = computed(() => {
-      const ethDate = EthDateTime.fromEuropeanDate(currentDate.value)
-      return monthNames[ethDate.month - 1]
+    const currentMonth = computed(() => currentDate.value.month)
+    const currentMonthName = computed(() => monthNames[currentMonth.value - 1])
+    const currentYear = computed(() => currentDate.value.year)
+
+    const yearRange = computed(() => {
+      const year = currentYear.value
+      return Array.from({ length: 20 }, (_, i) => year - 10 + i)
     })
 
-    const currentYear = computed(() => {
-      const ethDate = EthDateTime.fromEuropeanDate(currentDate.value)
-      return ethDate.year
-    })
+    const isLeapYear = (year) => {
+      return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0)
+    }
 
     const days = computed(() => {
-      const ethDate = EthDateTime.fromEuropeanDate(currentDate.value)
-      const daysInMonth = ethDate.month === 13 ? (isLeapYear(ethDate.year) ? 6 : 5) : 30
-      const firstDayOfMonth = new EthDateTime(ethDate.year, ethDate.month, 1).toEuropeanDate()
-      const firstDayWeekday = firstDayOfMonth.getDay()
+      const { year, month } = currentDate.value
+      const daysInMonth = month === 13 ? (isLeapYear(year + 8) ? 6 : 5) : 30
+      const firstDayOfMonth = getFirstDayOfMonth(year, month)
       
       const days = []
       
-      // Previous month days
-      const prevMonthDays = firstDayWeekday
-      for (let i = prevMonthDays - 1; i >= 0; i--) {
-        const date = new Date(firstDayOfMonth)
-        date.setDate(firstDayOfMonth.getDate() - i)
+      // Fill with empty days for the first week
+      for (let i = 0; i < firstDayOfMonth; i++) {
         days.push({
-          date,
-          dayOfMonth: EthDateTime.fromEuropeanDate(date).date,
+          date: null,
+          dayOfMonth: '',
           isCurrentMonth: false,
           isCurrentDay: false
         })
@@ -103,122 +166,163 @@ export default {
       
       // Current month days
       for (let i = 1; i <= daysInMonth; i++) {
-        const date = new EthDateTime(ethDate.year, ethDate.month, i).toEuropeanDate()
         days.push({
-          date,
+          date: { year, month, day: i },
           dayOfMonth: i,
           isCurrentMonth: true,
-          isCurrentDay: i === ethDate.date
+          isCurrentDay: false
         })
       }
       
-      // Next month days
-      const remainingDays = 42 - days.length
-      for (let i = 1; i <= remainingDays; i++) {
-        const date = new Date(firstDayOfMonth)
-        date.setDate(firstDayOfMonth.getDate() + daysInMonth + i - 1)
-        days.push({
-          date,
-          dayOfMonth: EthDateTime.fromEuropeanDate(date).date,
-          isCurrentMonth: false,
-          isCurrentDay: false
-        })
+      // Fill remaining days of the last week
+      const remainingDays = 7 - (days.length % 7)
+      if (remainingDays < 7) {
+        for (let i = 0; i < remainingDays; i++) {
+          days.push({
+            date: null,
+            dayOfMonth: '',
+            isCurrentMonth: false,
+            isCurrentDay: false
+          })
+        }
       }
       
       return days
     })
 
-    const isLeapYear = (year) => {
-      return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0)
+    const getFirstDayOfMonth = (year, month) => {
+      // Simplified calculation for Ethiopian calendar
+      const baseDay = 2 // Ethiopian calendar typically starts on what would be Monday in Gregorian
+      const totalMonths = (year * 13) + month
+      return (baseDay + totalMonths) % 7
+    }
+
+    const isSameDate = (date1, date2) => {
+      if (!date1 || !date2) return false
+      return date1.year === date2.year && 
+             date1.month === date2.month && 
+             date1.day === date2.day
+    }
+
+    const isDateBefore = (date1, date2) => {
+      if (!date1 || !date2) return false
+      if (date1.year !== date2.year) return date1.year < date2.year
+      if (date1.month !== date2.month) return date1.month < date2.month
+      return date1.day < date2.day
+    }
+
+    const isDateAfter = (date1, date2) => {
+      if (!date1 || !date2) return false
+      if (date1.year !== date2.year) return date1.year > date2.year
+      if (date1.month !== date2.month) return date1.month > date2.month
+      return date1.day > date2.day
     }
 
     const isSelected = (day) => {
-      return selectedDates.value.some(date => 
-        date && day.date && date.getTime() === day.date.getTime()
-      )
-    }
-
-    const isInRange = (day) => {
-      if (!props.range || selectedDates.value.length !== 2) return false
-      const [start, end] = selectedDates.value
-      const dayTime = day.date.getTime()
-      return start && end && dayTime >= start.getTime() && dayTime <= end.getTime()
+      return isSameDate(day.date, selectedDate.value)
     }
 
     const isRangeStart = (day) => {
-      if (!props.range || !selectedDates.value.length) return false
-      const start = selectedDates.value[0]
-      return start && day.date && day.date.getTime() === start.getTime()
+      return isSameDate(day.date, props.startDate)
     }
 
     const isRangeEnd = (day) => {
-      if (!props.range || selectedDates.value.length !== 2) return false
-      const end = selectedDates.value[1]
-      return end && day.date && day.date.getTime() === end.getTime()
+      return isSameDate(day.date, props.endDate)
+    }
+
+    const isInRange = (day) => {
+      if (!props.startDate || !props.endDate || !day.date) return false
+      return isDateAfter(day.date, props.startDate) && 
+             isDateBefore(day.date, props.endDate)
     }
 
     const selectDate = (day) => {
-      if (!props.range) {
-        selectedDates.value = [day.date]
-        emit('update:modelValue', day.date)
-      } else {
-        if (selectedDates.value.length === 0 || selectedDates.value.length === 2) {
+      if (!day.isCurrentMonth || !day.date) return
+      
+      if (props.isRange) {
+        if (!props.startDate || (props.startDate && props.endDate)) {
           // Start new range
-          selectedDates.value = [day.date]
           emit('range-start', day.date)
-          emit('update:modelValue', [day.date])
+          emit('range-end', null)
         } else {
-          // Complete range
-          const startDate = selectedDates.value[0]
-          if (day.date < startDate) {
-            // If end date is before start date, swap them
-            selectedDates.value = [day.date, startDate]
+          // Complete or update range
+          if (isDateBefore(day.date, props.startDate)) {
+            // If selected date is before start date, make it the new start
             emit('range-start', day.date)
-            emit('range-end', startDate)
-            emit('update:modelValue', [day.date, startDate])
           } else {
-            selectedDates.value = [startDate, day.date]
             emit('range-end', day.date)
-            emit('update:modelValue', [startDate, day.date])
           }
         }
+      } else {
+        selectedDate.value = day.date
+        emit('update:modelValue', day.date)
       }
+      
+      showMonthSelector.value = false
+      showYearSelector.value = false
+    }
+
+    const selectMonth = (month) => {
+      currentDate.value = { ...currentDate.value, month }
+      showMonthSelector.value = false
+    }
+
+    const selectYear = (year) => {
+      currentDate.value = { ...currentDate.value, year }
+      showYearSelector.value = false
     }
 
     const previousMonth = () => {
-      const date = new Date(currentDate.value)
-      date.setMonth(date.getMonth() - 1)
-      currentDate.value = date
+      const { year, month } = currentDate.value
+      if (month === 1) {
+        currentDate.value = { year: year - 1, month: 13, day: 1 }
+      } else {
+        currentDate.value = { year, month: month - 1, day: 1 }
+      }
     }
 
     const nextMonth = () => {
-      const date = new Date(currentDate.value)
-      date.setMonth(date.getMonth() + 1)
-      currentDate.value = date
+      const { year, month } = currentDate.value
+      if (month === 13) {
+        currentDate.value = { year: year + 1, month: 1, day: 1 }
+      } else {
+        currentDate.value = { year, month: month + 1, day: 1 }
+      }
     }
+
+    watch(() => props.modelValue, (newValue) => {
+      if (newValue) {
+        selectedDate.value = newValue
+        currentDate.value = { ...newValue }
+      }
+    })
 
     onMounted(() => {
       if (props.modelValue) {
-        if (Array.isArray(props.modelValue)) {
-          selectedDates.value = props.modelValue
-            .filter(date => date !== null)
-            .map(date => new Date(date))
-        } else {
-          selectedDates.value = [new Date(props.modelValue)]
-        }
+        selectedDate.value = props.modelValue
+        currentDate.value = { ...props.modelValue }
       }
     })
 
     return {
+      currentDate,
+      selectedDate,
       weekDays,
+      monthNames,
+      currentMonth,
       currentMonthName,
       currentYear,
+      yearRange,
       days,
+      showMonthSelector,
+      showYearSelector,
       isSelected,
-      isInRange,
       isRangeStart,
       isRangeEnd,
+      isInRange,
       selectDate,
+      selectMonth,
+      selectYear,
       previousMonth,
       nextMonth
     }
@@ -229,11 +333,11 @@ export default {
 <style scoped>
 .ethiopian-calendar {
   width: 300px;
-  border: 1px solid #ddd;
   padding: 1rem;
-  background-color: #fff;
-  color: black;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: Arial, sans-serif;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1)
 }
 
 .calendar-header {
@@ -241,75 +345,141 @@ export default {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
+  color: #666;
 }
 
-.calendar-header button {
-  background: none;
-  color: black;
-  border: none;
+.month-year {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  position: relative;
+}
+
+.month-selector,
+.year-selector {
   cursor: pointer;
-  padding: 0.5rem;
+  padding: 0.25rem 2rem;
+  position: relative;
+  color: #666;
+  
+}
+
+.selector-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  z-index: 1000;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.selector-dropdown div {
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+
+.selector-dropdown div:hover {
+  background: #f5f5f5;
+}
+
+.selector-dropdown div.active {
+  background: #e0e0e0;
 }
 
 .weekdays {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  text-align: center;
+  gap: 0.5rem;
   margin-bottom: 0.5rem;
-  color: black;
+  text-align: center;
 }
 
 .weekday {
-  padding: 0.5rem;
   font-weight: bold;
+  color: black;
+}
+.calendar-header button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 1.2rem;
+  color: #666;
 }
 
 .days {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 1px;
+  gap: 0.5rem;
+  color: #666;
+
 }
 
 .day {
-  padding: 0.5rem;
-  text-align: center;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 50%;
+  transition: background-color 0.2s;
 }
 
-.day:hover {
+.day:hover:not(.disabled) {
   background-color: #f0f0f0;
 }
 
+.day.disabled {
+  color: #ccc;
+  cursor: default;
+}
+
 .day.current {
-  background-color: #e6f7ff;
+  color: #2196f3;
+  font-weight: bold;
 }
 
 .day.selected {
-  background-color: #2427eb;
+  background-color: #2196f3;
   color: white;
 }
 
-.day.range {
-  background-color: #f1efef;
+.day.in-range {
+  background-color: #e3f2fd;
+  border-radius: 0;
 }
 
 .day.range-start {
-  background-color: #2427eb;
+  background-color: #2196f3;
   color: white;
+  border-top-left-radius: 50%;
+  border-bottom-left-radius: 50%;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 }
 
 .day.range-end {
-  background-color: #2427eb;
+  background-color: #2196f3;
   color: white;
+  border-top-right-radius: 50%;
+  border-bottom-right-radius: 50%;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
 }
 
-.day.disabled {
-  color: #ccc;
-  cursor: not-allowed;
+button {
+  padding: 0.5rem;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 1.2rem;
+}
+
+button:hover {
+  background-color: #f0f0f0;
+  border-radius: 50%;
 }
 </style>
