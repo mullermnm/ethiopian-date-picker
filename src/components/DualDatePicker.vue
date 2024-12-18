@@ -6,6 +6,7 @@
       :value="displayValue"
       @click="toggleDatePicker"
       readonly
+      placeholder="Select Date"
       class="date-input"
     />
 
@@ -183,16 +184,31 @@ export default {
         return ''
       }
 
+      const formatGregorianDate = (date) => {
+        return date instanceof Date ? date.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }) : ''
+      }
+
+      const formatEthiopianDate = (date) => {
+        const ethDate = toEthiopianDate(date)
+        return `${ethDate.day.toString().padStart(2, '0')}/${ethDate.month.toString().padStart(2, '0')}/${ethDate.year}`
+      }
+
       if (props.datePickerType === 'ethiopian') {
-        return `${start.day}/${start.month}/${start.year} - ${end.day}/${end.month}/${end.year}`
+        const ethStart = toEthiopianDate(start)
+        const ethEnd = toEthiopianDate(end)
+        return `${ethStart.day.toString().padStart(2, '0')}/${ethStart.month.toString().padStart(2, '0')}/${ethStart.year} - ${ethEnd.day.toString().padStart(2, '0')}/${ethEnd.month.toString().padStart(2, '0')}/${ethEnd.year}`
       }
       
       if (props.datePickerType === 'gregorian') {
-        return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`
+        return `${formatGregorianDate(start)} - ${formatGregorianDate(end)}`
       }
       
       // For 'both', show both formats
-      return `${start.toLocaleDateString()} - ${end.toLocaleDateString()} / ${start.day}/${start.month}/${start.year} - ${end.day}/${end.month}/${end.year}`
+      return `${formatGregorianDate(start)} - ${formatGregorianDate(end)} / ${formatEthiopianDate(start)} - ${formatEthiopianDate(end)}`
     })
 
     // Event Handlers
@@ -272,6 +288,7 @@ export default {
   border-radius: 4px;
   cursor: pointer;
   background-color: white;
+  color: #333;
 }
 
 .date-picker-modal {
